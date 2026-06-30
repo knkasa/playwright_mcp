@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 env:
-  ACR_NAME: acrnakatsukasa1
+  ACR_NAME: ${{ env.ACR_NAME }}
   IMAGE_NAME: playwright-agent
 
 jobs:

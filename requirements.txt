@@ -1,0 +1,5 @@
+gradio>=4.0.0
+strands-agents[openai]
+openai
+azure-identity
+mcp

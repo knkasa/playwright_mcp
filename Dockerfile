@@ -39,8 +39,10 @@ RUN npm install -g @playwright/mcp && \
 # Cache bust to force fresh Chromium install
 ARG CACHEBUST=1
 
-# Install Chromium browser for Playwright MCP (with OS-level deps)
-RUN npx --yes playwright install --with-deps chromium && \
+# Install browser using playwright-mcp's own installer
+# (the MCP server requires the "chrome-for-testing" channel specifically,
+# even when --browser chromium is passed at runtime)
+RUN npx --yes @playwright/mcp install-browser chrome-for-testing && \
     ls -la /ms-playwright
 
 # Set working directory

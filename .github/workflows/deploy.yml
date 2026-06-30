@@ -1,12 +1,11 @@
 name: Build and Push Playwright Agent
 
 on:
-  workflow_dispatch:  # manual deploy
-  #push:
-  #  branches: [main]  # auto-deploy
+  push:
+    branches: [main]
 
 env:
-  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACR_NAME: acrnakatsukasa1
   IMAGE_NAME: playwright-agent
 
 jobs:
@@ -26,7 +25,8 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          docker build --build-arg CACHEBUST=${{ github.sha }} \
+                       -t ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} .
           docker push ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }}
           docker tag ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ github.sha }} \
                      ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest

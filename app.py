@@ -1,5 +1,4 @@
 import sys
-import os
 import gradio as gr
 from strands import Agent
 from strands.models.openai import OpenAIModel
@@ -8,12 +7,12 @@ from mcp import stdio_client, StdioServerParameters
 from openai import AsyncAzureOpenAI
 from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
 
-AZURE_ENDPOINT = os.environ.get("AZURE_ENDPOINT")
-DEPLOYMENT_NAME = os.environ.get("DEPLOYMENT_NAME")
-CLIENT_ID = os.environ.get("AZURE_CLIENT_ID")              # only needed for user-assigned identity
-
-credential = ManagedIdentityCredential(client_id=CLIENT_ID) if CLIENT_ID else ManagedIdentityCredential()
-token_provider = get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
+# Azure OpenAI setup via Managed Identity
+credential = ManagedIdentityCredential()
+token_provider = get_bearer_token_provider(
+    credential,
+    "https://cognitiveservices.azure.com/.default"
+)
 
 azure_client = AsyncAzureOpenAI(
     azure_endpoint="https://foundry-nakatsukasa1.openai.azure.com/",
@@ -23,12 +22,22 @@ azure_client = AsyncAzureOpenAI(
 
 model = OpenAIModel(
     client=azure_client,
-    model_id=DEPLOYMENT_NAME,
+    model_id="gpt-4o-mini",
 )
 
 # Linux paths inside container
+import subprocess
+
 NODE_PATH = "/usr/bin/node"
-MCP_CLI   = "/usr/lib/node_modules/@playwright/mcp/cli.js"
+
+def _find_mcp_cli():
+    npm_root = subprocess.run(
+        ["npm", "root", "-g"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    return f"{npm_root}/@playwright/mcp/cli.js"
+
+MCP_CLI = _find_mcp_cli()
+
 
 def chat(message, history):
     """Handle a chat message with Playwright MCP agent."""

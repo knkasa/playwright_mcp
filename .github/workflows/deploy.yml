@@ -1,11 +1,12 @@
 name: Build and Push Playwright Agent
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:  # manual deploy
+  #push:
+  #  branches: [main]  # auto-deploy
 
 env:
-  ACR_NAME: ${{ env.ACR_NAME }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
   IMAGE_NAME: playwright-agent
 
 jobs:

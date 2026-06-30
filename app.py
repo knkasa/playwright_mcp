@@ -27,6 +27,7 @@ model = OpenAIModel(
 
 # Linux paths inside container
 import subprocess
+import os
 
 NODE_PATH = "/usr/bin/node"
 
@@ -38,6 +39,11 @@ def _find_mcp_cli():
 
 MCP_CLI = _find_mcp_cli()
 
+# Explicitly build env for the subprocess - some MCP SDK versions don't
+# inherit the parent process environment automatically
+MCP_ENV = dict(os.environ)
+MCP_ENV.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/ms-playwright")
+
 
 def chat(message, history):
     """Handle a chat message with Playwright MCP agent."""
@@ -46,6 +52,7 @@ def chat(message, history):
             StdioServerParameters(
                 command=NODE_PATH,
                 args=[MCP_CLI, "--headless", "--no-sandbox", "--browser", "chromium"],
+                env=MCP_ENV,
                 stderr=sys.stderr
             )
         )

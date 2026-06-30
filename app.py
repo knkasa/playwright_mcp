@@ -45,41 +45,46 @@ MCP_ENV = dict(os.environ)
 MCP_ENV.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/ms-playwright")
 
 
-def chat(message, history):
-    """Handle a chat message with Playwright MCP agent."""
-    playwright_client = MCPClient(
-        lambda: stdio_client(
-            StdioServerParameters(
-                command=NODE_PATH,
-                args=[MCP_CLI, "--headless", "--no-sandbox", "--browser", "chromium"],
-                env=MCP_ENV,
-                stderr=sys.stderr
-            )
+# --- Persistent Playwright MCP session + Agent ---
+# Created once at startup and reused across all messages so the browser
+# (open tabs, current page, scroll state) survives between conversation turns.
+
+playwright_client = MCPClient(
+    lambda: stdio_client(
+        StdioServerParameters(
+            command=NODE_PATH,
+            args=[MCP_CLI, "--headless", "--no-sandbox", "--browser", "chromium"],
+            env=MCP_ENV,
+            stderr=sys.stderr
         )
     )
+)
 
-    with playwright_client:
-        tools = playwright_client.list_tools_sync()
+# Enter the MCP client context once and keep it open for the app's lifetime
+playwright_client.__enter__()
+_tools = playwright_client.list_tools_sync()
 
-        # Build conversation history for the agent
-        conversation = ""
-        for human, assistant in history:
-            conversation += f"User: {human}\nAssistant: {assistant}\n"
-        conversation += f"User: {message}"
+agent = Agent(
+    model=model,
+    tools=_tools,
+    system_prompt=(
+        "You are a web automation assistant using Playwright. "
+        "You can browse websites, extract information, click elements, "
+        "fill forms, and take screenshots. The browser session persists "
+        "across the conversation, so previously opened pages remain available "
+        "unless you navigate away from them. "
+        "If you encounter an error, report the exact error message."
+    )
+)
 
-        agent = Agent(
-            model=model,
-            tools=tools,
-            system_prompt=(
-                "You are a web automation assistant using Playwright. "
-                "You can browse websites, extract information, click elements, "
-                "fill forms, and take screenshots. "
-                "If you encounter an error, report the exact error message."
-            )
-        )
 
-        response = agent(conversation)
-        return str(response)
+def chat(message, history):
+    """Handle a chat message using the persistent agent/browser session."""
+    # Strands' Agent keeps its own internal message history across calls,
+    # so we just pass the new message each time rather than rebuilding
+    # the full transcript ourselves.
+    response = agent(message)
+    return str(response)
 
 
 # Gradio UI

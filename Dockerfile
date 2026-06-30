@@ -28,12 +28,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install @playwright/mcp globally
-RUN npm install -g @playwright/mcp
+# Pin Playwright browser install location explicitly
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Install Chromium browser for Playwright MCP
-RUN node /usr/local/lib/node_modules/@playwright/mcp/node_modules/.bin/playwright.js install chromium \
-    || npx playwright install chromium
+# Install @playwright/mcp globally and verify the install path
+RUN npm install -g @playwright/mcp && \
+    npm root -g && \
+    ls -la $(npm root -g)/@playwright/mcp/
+
+# Install Chromium browser for Playwright MCP (with OS-level deps)
+RUN npx --yes playwright install --with-deps chromium && \
+    ls -la /ms-playwright
 
 # Set working directory
 WORKDIR /app

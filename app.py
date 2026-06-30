@@ -28,8 +28,7 @@ model = OpenAIModel(
 
 # Linux paths inside container
 NODE_PATH = "/usr/bin/node"
-MCP_CLI   = "/usr/local/lib/node_modules/@playwright/mcp/cli.js"
-
+MCP_CLI   = "/usr/lib/node_modules/@playwright/mcp/cli.js"
 
 def chat(message, history):
     """Handle a chat message with Playwright MCP agent."""

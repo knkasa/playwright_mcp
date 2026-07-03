@@ -25,7 +25,7 @@ azure_client = AsyncAzureOpenAI(
     azure_ad_token_provider=token_provider,
     api_version="2024-10-21",   # for gpt-4o-mini
     #api_version="2025-04-01-preview",  # for gpt-5
-    max_retries=5,
+    max_retries=3,
 )
 
 model = OpenAIModel(

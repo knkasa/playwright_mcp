@@ -71,9 +71,9 @@ agent = Agent(
     )
 )
 
-
 def chat(message, history, request: gr.Request):
     username = request.headers.get("x-ms-client-principal-name", "unknown")
+    print("", flush=True)  # ← force newline to separate agent output from our log
     logger.info("chat_request", extra={"username": username, "message": message})
     try:
         response = agent(message)
@@ -81,7 +81,6 @@ def chat(message, history, request: gr.Request):
     except Exception as e:
         logger.exception("chat_error", extra={"username": username, "error": str(e)})
         return f"An error occurred: {str(e)}"
-
 
 with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.Markdown("# 🌐 Playwright Web Agent")

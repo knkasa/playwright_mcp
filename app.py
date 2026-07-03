@@ -20,9 +20,12 @@ token_provider = get_bearer_token_provider(
 )
 
 azure_client = AsyncAzureOpenAI(
-    azure_endpoint="https://foundry-nakatsukasa1.openai.azure.com/",
+    #azure_endpoint="https://foundry-nakatsukasa1.openai.azure.com/",  # for gpt-4o-mini
+    azure_endpoint="https://foundry-nakatsukasa1.services.azure.com/",   # for gpt-5
     azure_ad_token_provider=token_provider,
-    api_version="2024-10-21",
+    #api_version="2024-10-21",   # for gpt-4o-mini
+    api_version="2025-04-01-preview",  # for gpt-5
+    max_retries=5,
 )
 
 model = OpenAIModel(

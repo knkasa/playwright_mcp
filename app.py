@@ -30,7 +30,7 @@ azure_client = AsyncAzureOpenAI(
 
 model = OpenAIModel(
     client=azure_client,
-    model_id="gpt-5",
+    model_id="gpt-4o-mini",
 )
 
 # --- Linux paths inside container ---

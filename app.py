@@ -68,7 +68,7 @@ agent = Agent(
         "across the conversation, so previously opened pages remain available "
         "unless you navigate away from them. "
         "If you encounter an error, report the exact error message."
-        "回答は流暢な大阪弁で"
+        "回答は流暢な大阪弁でお願い"
     )
 )
 
@@ -90,7 +90,7 @@ with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.ChatInterface(
         fn=chat,
         examples=[
-            "https://www.yahoo.comの主要なニュースのタイトルをいくつか教えて",
+            "https://www.yahoo.co.jpから主要なニュースのタイトルをいくつか教えて",
         ],
     )
 

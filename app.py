@@ -1,5 +1,8 @@
 import sys
+import os
+import subprocess
 import gradio as gr
+from loguru import logger
 from strands import Agent
 from strands.models.openai import OpenAIModel
 from strands.tools.mcp import MCPClient
@@ -7,7 +10,9 @@ from mcp import stdio_client, StdioServerParameters
 from openai import AsyncAzureOpenAI
 from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
 
-# Azure OpenAI setup via Managed Identity
+logger.remove()
+logger.add(sys.stdout, serialize=True, level="INFO")
+
 credential = ManagedIdentityCredential()
 token_provider = get_bearer_token_provider(
     credential,
@@ -25,10 +30,7 @@ model = OpenAIModel(
     model_id="gpt-4o-mini",
 )
 
-# Linux paths inside container
-import subprocess
-import os
-
+# --- Linux paths inside container ---
 NODE_PATH = "/usr/bin/node"
 
 def _find_mcp_cli():
@@ -38,17 +40,10 @@ def _find_mcp_cli():
     return f"{npm_root}/@playwright/mcp/cli.js"
 
 MCP_CLI = _find_mcp_cli()
-
-# Explicitly build env for the subprocess - some MCP SDK versions don't
-# inherit the parent process environment automatically
 MCP_ENV = dict(os.environ)
 MCP_ENV.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/ms-playwright")
 
-
 # --- Persistent Playwright MCP session + Agent ---
-# Created once at startup and reused across all messages so the browser
-# (open tabs, current page, scroll state) survives between conversation turns.
-
 playwright_client = MCPClient(
     lambda: stdio_client(
         StdioServerParameters(
@@ -60,7 +55,6 @@ playwright_client = MCPClient(
     )
 )
 
-# Enter the MCP client context once and keep it open for the app's lifetime
 playwright_client.__enter__()
 _tools = playwright_client.list_tools_sync()
 
@@ -78,16 +72,17 @@ agent = Agent(
 )
 
 
-def chat(message, history):
-    """Handle a chat message using the persistent agent/browser session."""
-    # Strands' Agent keeps its own internal message history across calls,
-    # so we just pass the new message each time rather than rebuilding
-    # the full transcript ourselves.
-    response = agent(message)
-    return str(response)
+def chat(message, history, request: gr.Request):
+    username = request.headers.get("x-ms-client-principal-name", "unknown")
+    logger.info("chat_request", extra={"username": username, "message": message})
+    try:
+        response = agent(message)
+        return str(response)
+    except Exception as e:
+        logger.exception("chat_error", extra={"username": username, "error": str(e)})
+        return f"An error occurred: {str(e)}"
 
 
-# Gradio UI
 with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.Markdown("# 🌐 Playwright Web Agent")
     gr.Markdown("Ask me to browse websites, extract information, or automate web tasks.")

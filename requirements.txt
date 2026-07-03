@@ -1,5 +1,6 @@
 gradio>=4.0.0
-strands-agents[openai]
-openai
-azure-identity
-mcp
+strands-agents[openai]==1.45.0
+openai==2.43.0
+azure-identity==1.25.3
+mcp==1.28.1
+loguru==0.7.3

@@ -20,8 +20,8 @@ token_provider = get_bearer_token_provider(
 )
 
 azure_client = AsyncAzureOpenAI(
-    #azure_endpoint="https://foundry-nakatsukasa1.openai.azure.com/",  # for gpt
-    azure_endpoint="https://foundry-nakatsukasa1.services.azure.com/anthropic",   # for claude
+    azure_endpoint="https://foundry-nakatsukasa1.openai.azure.com/",  # for gpt
+    #azure_endpoint="https://foundry-nakatsukasa1.services.azure.com/anthropic",   # for claude
     azure_ad_token_provider=token_provider,
     api_version="2024-10-21",   # for gpt-4o-mini
     #api_version="2025-04-01-preview",  
@@ -30,7 +30,7 @@ azure_client = AsyncAzureOpenAI(
 
 model = OpenAIModel(
     client=azure_client,
-    model_id="claude-haiku-4-5",  #"gpt-5-mini",  claude-haiku-4-5
+    model_id="gpt-5-mini",  #"gpt-5-mini",  claude-haiku-4-5
 )
 
 # --- Linux paths inside container ---

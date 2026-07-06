@@ -4,10 +4,9 @@ import subprocess
 import gradio as gr
 from loguru import logger
 from strands import Agent
-from strands.models.openai import OpenAIModel
+from strands.models.anthropic import AnthropicModel
 from strands.tools.mcp import MCPClient
 from mcp import stdio_client, StdioServerParameters
-from openai import AsyncAzureOpenAI
 from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
 
 logger.remove()
@@ -19,18 +18,13 @@ token_provider = get_bearer_token_provider(
     "https://cognitiveservices.azure.com/.default"
 )
 
-azure_client = AsyncAzureOpenAI(
-    azure_endpoint="https://foundry-nakatsukasa1.openai.azure.com/",  # for gpt
-    #azure_endpoint="https://foundry-nakatsukasa1.services.ai.azure.com/anthropic",   # for claude
-    azure_ad_token_provider=token_provider,
-    api_version="2024-10-21",   # for gpt-4o-mini
-    #api_version="2025-04-01-preview",  
-    max_retries=3,
-)
-
-model = OpenAIModel(
-    client=azure_client,
-    model_id="gpt-5-mini",  #"gpt-5-mini",  claude-haiku-4-5
+model = AnthropicModel(
+    client_args={
+        "base_url": "https://foundry-nakatsukasa1.services.ai.azure.com/anthropic",
+        "azure_ad_token_provider": token_provider,
+    },
+    model_id="claude-haiku-4-5",   # your exact Foundry deployment name
+    max_tokens=32768,
 )
 
 # --- Linux paths inside container ---
@@ -71,7 +65,6 @@ agent = Agent(
         "across the conversation, so previously opened pages remain available "
         "unless you navigate away from them. "
         "If you encounter an error, report the exact error message."
-        "回答は流暢な大阪弁でお願い"
     )
 )
 
@@ -88,12 +81,14 @@ def chat(message, history, request: gr.Request):
 
 with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.Markdown("# 🌐 Playwright Web Agent")
-    gr.Markdown("ブラウザ操作できます！")
+    gr.Markdown("Ask me to browse websites, extract information, or automate web tasks.")
 
     gr.ChatInterface(
         fn=chat,
         examples=[
-            "https://www.yahoo.co.jpから主要なニュースのタイトルをいくつか教えて",
+            "Go to https://example.com and tell me the page title.",
+            "Go to https://news.ycombinator.com and list the top 5 stories.",
+            "Go to https://github.com/trending and tell me the top trending repos today.",
         ],
     )
 

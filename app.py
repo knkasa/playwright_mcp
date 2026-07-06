@@ -8,6 +8,7 @@ from strands.models.anthropic import AnthropicModel
 from strands.tools.mcp import MCPClient
 from mcp import stdio_client, StdioServerParameters
 from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
+from anthropic import AsyncAnthropicFoundry
 
 logger.remove()
 logger.add(sys.stdout, serialize=True, level="INFO")
@@ -19,14 +20,14 @@ token_provider = get_bearer_token_provider(
 )
 
 model = AnthropicModel(
-    client_args={
-        "base_url": "https://foundry-nakatsukasa1.services.ai.azure.com/anthropic",
-        "azure_ad_token_provider": token_provider,
-    },
-    model_id="claude-haiku-4-5",   # your exact Foundry deployment name
+    client_args={"api_key": "placeholder"},  # dummy, will be overwritten
+    model_id="claude-haiku-4-5",
     max_tokens=32768,
 )
-
+model.client = AsyncAnthropicFoundry(
+    base_url="https://foundry-nakatsukasa1.services.ai.azure.com/anthropic",
+    azure_ad_token_provider=token_provider,
+)
 # --- Linux paths inside container ---
 NODE_PATH = "/usr/bin/node"
 

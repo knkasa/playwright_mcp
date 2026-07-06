@@ -91,7 +91,7 @@ with gr.Blocks(title="Playwright Web Agent") as demo:
             "transit.yahoo.co.jpにアクセスして出発：東京駅、到着：新大阪駅、明日の9時出発で検索、最短ルートの所要時間と料金教えて",
             "openai.com/newsとanthropic.com/newsにアクセスして、それぞれ直近５件のニュースタイトルを取得、モデルリリース関連のものを教えて",
             "github.com/trendingにアクセス、言語をPythonでフィルタ、今日のTop10リポジトリのうちAIに関するものを教えて",
-            "食べログで「豊洲 ランチ」を検索、評価3.5以上、予算1500円以内のお店上位5件教えて"
+            "tabelog.comにアクセスして「豊洲 ランチ」を検索、評価3.5以上、予算1500円以内のお店上位5件教えて"
         ],
     )
 

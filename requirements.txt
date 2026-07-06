@@ -1,6 +1,6 @@
 gradio==6.19.0
-#strands-agents[openai]==1.45.0
-strands-agents[anthropic]==1.45.0
+strands-agents[openai]==1.45.0
+#strands-agents[anthropic]==1.45.0
 openai==2.43.0
 azure-identity==1.25.3
 mcp==1.28.1

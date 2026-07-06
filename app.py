@@ -4,11 +4,11 @@ import subprocess
 import gradio as gr
 from loguru import logger
 from strands import Agent
-from strands.models.anthropic import AnthropicModel
+from strands.models.openai import OpenAIModel
 from strands.tools.mcp import MCPClient
 from mcp import stdio_client, StdioServerParameters
+from openai import AsyncAzureOpenAI
 from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
-from anthropic import AsyncAnthropicFoundry
 
 # make sure to update requirements.txt for strands_agent.  There are openai and anthropic versions.
 
@@ -21,15 +21,17 @@ token_provider = get_bearer_token_provider(
     "https://cognitiveservices.azure.com/.default"
 )
 
-model = AnthropicModel(
-    client_args={"api_key": "placeholder"},  # dummy, will be overwritten
-    model_id="claude-haiku-4-5",
-    max_tokens=32768,
-)
-model.client = AsyncAnthropicFoundry(
-    base_url="https://foundry-nakatsukasa1.services.ai.azure.com/anthropic",
+azure_client = AsyncAzureOpenAI(
+    azure_endpoint="https://foundry-nakatsukasa1.openai.azure.com/",
     azure_ad_token_provider=token_provider,
+    api_version="2024-10-21",
 )
+
+model = OpenAIModel(
+    client=azure_client,
+    model_id="gpt-5",
+)
+
 # --- Linux paths inside container ---
 NODE_PATH = "/usr/bin/node"
 

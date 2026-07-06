@@ -10,6 +10,8 @@ from mcp import stdio_client, StdioServerParameters
 from openai import AsyncAzureOpenAI
 from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
 
+# make sure to update requirements.txt for strands_agent.  There are openai and anthropic versions.
+
 logger.remove()
 logger.add(sys.stdout, serialize=True, level="INFO")
 

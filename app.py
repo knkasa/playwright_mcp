@@ -3,6 +3,7 @@ import os
 import time
 import subprocess
 import threading
+import concurrent.futures
 import gradio as gr
 from loguru import logger
 from strands import Agent
@@ -33,12 +34,14 @@ def _make_model():
     )
     return m
 
-# --- Linux paths inside container ---
 NODE_PATH = "/usr/bin/node"
 
 def _find_mcp_cli():
     npm_root = subprocess.run(
-        ["npm", "root", "-g"], capture_output=True, text=True, check=True
+        ["npm", "root", "-g"],
+        capture_output=True,
+        text=True,
+        check=True
     ).stdout.strip()
     return f"{npm_root}/@playwright/mcp/cli.js"
 
@@ -49,96 +52,172 @@ MCP_ENV.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/ms-playwright")
 SYSTEM_PROMPT = (
     "You are a web automation assistant using Playwright. "
     "You can browse websites, extract information, click elements, "
-    "fill forms, and take screenshots. The browser session persists "
-    "across the conversation, so previously opened pages remain available "
-    "unless you navigate away from them. "
+    "fill forms, and take screenshots. "
     "If you encounter an error, report the exact error message."
 )
 
-# --- Per-session browser instances ---
 sessions = {}
 sessions_lock = threading.Lock()
-SESSION_TIMEOUT = 1800  # 30 minutes
+
+SESSION_TIMEOUT = 1800
 MAX_SESSIONS = 4
+AGENT_TIMEOUT = 180
+
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_SESSIONS)
+
 
 def _make_mcp_client():
     def _factory():
         return stdio_client(
             StdioServerParameters(
                 command=NODE_PATH,
-                args=[MCP_CLI, "--headless", "--no-sandbox", "--browser", "chromium"],
+                args=[
+                    MCP_CLI,
+                    "--headless",
+                    "--no-sandbox",
+                    "--browser",
+                    "chromium",
+                ],
                 env=MCP_ENV,
-                stderr=sys.stderr
+                stderr=sys.stderr,
             )
         )
+
     return MCPClient(_factory)
+
+
+def close_session(session_id):
+    with sessions_lock:
+        s = sessions.pop(session_id, None)
+
+    if s:
+        try:
+            s["client"].__exit__(None, None, None)
+        except Exception as e:
+            logger.warning(
+                "session_close_error",
+                extra={"session_id": session_id, "error": str(e)}
+            )
+
+        logger.info("session_closed", extra={"session_id": session_id})
+
 
 def cleanup_old_sessions():
     now = time.time()
-    to_delete = []
-    for sid, s in sessions.items():
+    old_ids = []
+
+    for sid, s in list(sessions.items()):
         if now - s["last_used"] > SESSION_TIMEOUT:
-            try:
-                s["client"].__exit__(None, None, None)
-            except Exception:
-                pass
-            to_delete.append(sid)
-    for sid in to_delete:
-        del sessions[sid]
-        logger.info("session_cleaned", extra={"session_id": sid})
+            old_ids.append(sid)
+
+    for sid in old_ids:
+        close_session(sid)
+
 
 def get_or_create_session(session_id):
     with sessions_lock:
         cleanup_old_sessions()
-        if session_id not in sessions:
-            if len(sessions) >= MAX_SESSIONS:
-                return None
-            client = _make_mcp_client()
-            client.__enter__()
-            tools = client.list_tools_sync()
-            agent = Agent(
-                model=_make_model(),
-                tools=tools,
-                system_prompt=SYSTEM_PROMPT
-            )
-            sessions[session_id] = {
-                "client": client,
-                "agent": agent,
-                "last_used": time.time()
-            }
-            logger.info("session_created", extra={"session_id": session_id})
-        else:
+
+        if session_id in sessions:
             sessions[session_id]["last_used"] = time.time()
-        return sessions[session_id]
+            return sessions[session_id]
+
+        if len(sessions) >= MAX_SESSIONS:
+            return None
+
+    # Create MCP client outside lock to avoid global blocking
+    client = _make_mcp_client()
+    client.__enter__()
+    tools = client.list_tools_sync()
+
+    agent = Agent(
+        model=_make_model(),
+        tools=tools,
+        system_prompt=SYSTEM_PROMPT,
+    )
+
+    session = {
+        "client": client,
+        "agent": agent,
+        "last_used": time.time(),
+    }
+
+    with sessions_lock:
+        sessions[session_id] = session
+
+    logger.info("session_created", extra={"session_id": session_id})
+    return session
+
 
 def chat(message, history, request: gr.Request):
     username = request.headers.get("x-ms-client-principal-name", "unknown")
-    session_id = request.session_hash
-    session = get_or_create_session(session_id)
 
-    if session is None:
-        return "現在混み合っています。しばらくしてからお試しください。"
+    # Important: after refresh, keep same browser session per user
+    session_id = username if username != "unknown" else request.session_hash
 
-    print("", flush=True)
-    logger.info("chat_request", extra={"username": username, "message": message})
+    logger.info(
+        "chat_request",
+        extra={
+            "username": username,
+            "session_id": session_id,
+            "message": message,
+        },
+    )
+
+    if message.strip().lower() in ["reset", "/reset", "リセット"]:
+        close_session(session_id)
+        return "ブラウザセッションをリセットしました。"
+
     try:
-        response = session["agent"](message)
+        session = get_or_create_session(session_id)
+
+        if session is None:
+            return "現在混み合っています。しばらくしてからお試しください。"
+
+        future = executor.submit(session["agent"], message)
+        response = future.result(timeout=AGENT_TIMEOUT)
+
         return str(response)
+
+    except concurrent.futures.TimeoutError:
+        logger.error(
+            "agent_timeout",
+            extra={"username": username, "session_id": session_id}
+        )
+        close_session(session_id)
+        return "処理がタイムアウトしました。ブラウザセッションをリセットしました。もう一度お試しください。"
+
     except Exception as e:
-        logger.exception("chat_error", extra={"username": username, "error": str(e)})
-        return f"An error occurred: {str(e)}"
+        logger.exception(
+            "chat_error",
+            extra={
+                "username": username,
+                "session_id": session_id,
+                "error": str(e),
+            },
+        )
+        close_session(session_id)
+        return f"エラーが発生しました。ブラウザセッションをリセットしました: {str(e)}"
+
 
 with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.Markdown("# ブラウザ操作エージェント")
     gr.Markdown("ブラウザ操作できます！")
+
     gr.ChatInterface(
         fn=chat,
         examples=[
-            "https://arxiv.org/のArtificial Intelligenceにアクセスして、Top5の記事について教えて",
-            "anthropic.com/newsにアクセスして、それぞれ直近５件のニュースタイトルを取得、モデルリリース関連のものを教えて",
-            "github.com/trendingにアクセス、言語をPythonでフィルタ、今日のTop5リポジトリのうちAIに関するものを教えて",
-            "googleにアクセスして、豊洲駅周辺でおすすめのラーメン屋を教えて"
+            "https://arxiv.org/ のArtificial Intelligenceにアクセスして、Top5の記事について教えて",
+            "anthropic.com/newsにアクセスして、直近5件のニュースタイトルを取得して",
+            "github.com/trendingにアクセス、言語をPythonでフィルタ、今日のTop5リポジトリを教えて",
+            "googleにアクセスして、豊洲駅周辺でおすすめのラーメン屋を教えて",
+            "リセット",
         ],
     )
 
-demo.launch(server_name="0.0.0.0", server_port=7860)
+demo.queue(default_concurrency_limit=MAX_SESSIONS)
+
+demo.launch(
+    server_name="0.0.0.0",
+    server_port=7860,
+)

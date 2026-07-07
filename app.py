@@ -1,5 +1,6 @@
 import sys
 import os
+import time
 import subprocess
 import threading
 import gradio as gr
@@ -56,25 +57,31 @@ SYSTEM_PROMPT = (
 )
 
 # --- Per-session browser instances ---
+import time
+
 sessions = {}
 sessions_lock = threading.Lock()
+SESSION_TIMEOUT = 1800  # 30 minutes
 
-def _make_mcp_client():
-    def _factory():
-        return stdio_client(
-            StdioServerParameters(
-                command=NODE_PATH,
-                args=[MCP_CLI, "--headless", "--no-sandbox", "--browser", "chromium"],
-                env=MCP_ENV,
-                stderr=sys.stderr
-            )
-        )
-    return MCPClient(_factory)
+def cleanup_old_sessions():
+    now = time.time()
+    to_delete = []
+    for sid, s in sessions.items():
+        if now - s["last_used"] > SESSION_TIMEOUT:
+            try:
+                s["client"].__exit__(None, None, None)
+            except Exception:
+                pass
+            to_delete.append(sid)
+    for sid in to_delete:
+        del sessions[sid]
+        logger.info("session_cleaned", extra={"session_id": sid})
 
 def get_or_create_session(session_id):
     with sessions_lock:
+        cleanup_old_sessions()  # ← clean up before creating new ones
         if session_id not in sessions:
-            client = _make_mcp_client()  # ← 毎回新しいインスタンス
+            client = _make_mcp_client()
             client.__enter__()
             tools = client.list_tools_sync()
             agent = Agent(
@@ -82,8 +89,14 @@ def get_or_create_session(session_id):
                 tools=tools,
                 system_prompt=SYSTEM_PROMPT
             )
-            sessions[session_id] = {"client": client, "agent": agent}
+            sessions[session_id] = {
+                "client": client,
+                "agent": agent,
+                "last_used": time.time()
+            }
             logger.info("session_created", extra={"session_id": session_id})
+        else:
+            sessions[session_id]["last_used"] = time.time()  # ← update on reuse
         return sessions[session_id]
 
 def chat(message, history, request: gr.Request):

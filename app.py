@@ -71,12 +71,25 @@ agent = Agent(
     )
 )
 
+def get_or_create_session(session_id):
+    with sessions_lock:
+        if session_id not in sessions:
+            client = MCPClient(...)
+            client.__enter__()
+            tools = client.list_tools_sync()
+            agent = Agent(model=model, tools=tools, system_prompt=SYSTEM_PROMPT)
+            sessions[session_id] = {"client": client, "agent": agent}
+        return sessions[session_id]
+        
 def chat(message, history, request: gr.Request):
     username = request.headers.get("x-ms-client-principal-name", "unknown")
+    session_id = request.session_hash  # Gradio's unique per-browser-tab ID
+    session = get_or_create_session(session_id)
+    
     print("", flush=True)  # ← force newline to separate agent output from our log
     logger.info("chat_request", extra={"username": username, "message": message})
     try:
-        response = agent(message)
+        response = session["agent"](message)
         return str(response)
     except Exception as e:
         logger.exception("chat_error", extra={"username": username, "error": str(e)})

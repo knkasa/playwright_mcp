@@ -59,19 +59,22 @@ SYSTEM_PROMPT = (
 sessions = {}
 sessions_lock = threading.Lock()
 
+def _make_mcp_client():
+    def _factory():
+        return stdio_client(
+            StdioServerParameters(
+                command=NODE_PATH,
+                args=[MCP_CLI, "--headless", "--no-sandbox", "--browser", "chromium"],
+                env=MCP_ENV,
+                stderr=sys.stderr
+            )
+        )
+    return MCPClient(_factory)
+
 def get_or_create_session(session_id):
     with sessions_lock:
         if session_id not in sessions:
-            client = MCPClient(
-                lambda: stdio_client(
-                    StdioServerParameters(
-                        command=NODE_PATH,
-                        args=[MCP_CLI, "--headless", "--no-sandbox", "--browser", "chromium"],
-                        env=MCP_ENV,
-                        stderr=sys.stderr
-                    )
-                )
-            )
+            client = _make_mcp_client()  # ← 毎回新しいインスタンス
             client.__enter__()
             tools = client.list_tools_sync()
             agent = Agent(
@@ -82,7 +85,6 @@ def get_or_create_session(session_id):
             sessions[session_id] = {"client": client, "agent": agent}
             logger.info("session_created", extra={"session_id": session_id})
         return sessions[session_id]
-
 
 def chat(message, history, request: gr.Request):
     username = request.headers.get("x-ms-client-principal-name", "unknown")

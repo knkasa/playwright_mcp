@@ -89,7 +89,7 @@ with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.ChatInterface(
         fn=chat,
         examples=[
-            "https://arxiv.org/のArtificial Intelligenceにアクセスして、Top3の記事について教えて",
+            "https://arxiv.org/のArtificial Intelligenceにアクセスして、Top5の記事について教えて",
             "anthropic.com/newsにアクセスして、それぞれ直近５件のニュースタイトルを取得、モデルリリース関連のものを教えて",
             "github.com/trendingにアクセス、言語をPythonでフィルタ、今日のTop5リポジトリのうちAIに関するものを教えて",
             "googleにアクセスして、豊洲駅周辺でおすすめのラーメン屋を教えて"

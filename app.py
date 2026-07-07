@@ -4,23 +4,35 @@ import time
 import subprocess
 import threading
 import concurrent.futures
+
 import gradio as gr
 from loguru import logger
+
 from strands import Agent
 from strands.models.anthropic import AnthropicModel
 from strands.tools.mcp import MCPClient
 from mcp import stdio_client, StdioServerParameters
+
 from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
 from anthropic import AsyncAnthropicFoundry
 
+
+# -------------------------
+# Logging
+# -------------------------
 logger.remove()
 logger.add(sys.stdout, serialize=True, level="INFO")
 
+
+# -------------------------
+# Azure Foundry auth
+# -------------------------
 credential = ManagedIdentityCredential()
 token_provider = get_bearer_token_provider(
     credential,
     "https://cognitiveservices.azure.com/.default"
 )
+
 
 def _make_model():
     m = AnthropicModel(
@@ -28,42 +40,64 @@ def _make_model():
         model_id="claude-haiku-4-5",
         max_tokens=32768,
     )
+
     m.client = AsyncAnthropicFoundry(
         base_url="https://foundry-nakatsukasa1.services.ai.azure.com/anthropic",
         azure_ad_token_provider=token_provider,
     )
+
     return m
 
+
+# -------------------------
+# Playwright MCP settings
+# -------------------------
 NODE_PATH = "/usr/bin/node"
+
 
 def _find_mcp_cli():
     npm_root = subprocess.run(
         ["npm", "root", "-g"],
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     ).stdout.strip()
+
     return f"{npm_root}/@playwright/mcp/cli.js"
 
+
 MCP_CLI = _find_mcp_cli()
+
 MCP_ENV = dict(os.environ)
 MCP_ENV.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/ms-playwright")
+
 
 SYSTEM_PROMPT = (
     "You are a web automation assistant using Playwright. "
     "You can browse websites, extract information, click elements, "
     "fill forms, and take screenshots. "
+    "The browser session persists across the conversation. "
     "If you encounter an error, report the exact error message."
 )
 
+
+# -------------------------
+# Session management
+# -------------------------
 sessions = {}
+user_active = {}
+
 sessions_lock = threading.Lock()
 
-SESSION_TIMEOUT = 1800
+SESSION_TIMEOUT = 1800  # 30 minutes
 MAX_SESSIONS = 4
+
+CREATE_TIMEOUT = 60
 AGENT_TIMEOUT = 180
 
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_SESSIONS)
+executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=MAX_SESSIONS * 2
+)
 
 
 def _make_mcp_client():
@@ -96,7 +130,10 @@ def close_session(session_id):
         except Exception as e:
             logger.warning(
                 "session_close_error",
-                extra={"session_id": session_id, "error": str(e)}
+                extra={
+                    "session_id": session_id,
+                    "error": str(e),
+                },
             )
 
         logger.info("session_closed", extra={"session_id": session_id})
@@ -104,30 +141,72 @@ def close_session(session_id):
 
 def cleanup_old_sessions():
     now = time.time()
-    old_ids = []
+    expired = []
 
-    for sid, s in list(sessions.items()):
-        if now - s["last_used"] > SESSION_TIMEOUT:
-            old_ids.append(sid)
-
-    for sid in old_ids:
-        close_session(sid)
-
-
-def get_or_create_session(session_id):
     with sessions_lock:
-        cleanup_old_sessions()
+        for sid, s in list(sessions.items()):
+            if now - s["last_used"] > SESSION_TIMEOUT:
+                expired.append((sid, s))
+                del sessions[sid]
 
-        if session_id in sessions:
-            sessions[session_id]["last_used"] = time.time()
-            return sessions[session_id]
+    for sid, s in expired:
+        try:
+            s["client"].__exit__(None, None, None)
+        except Exception:
+            pass
 
-        if len(sessions) >= MAX_SESSIONS:
-            return None
+        logger.info("session_cleaned", extra={"session_id": sid})
 
-    # Create MCP client outside lock to avoid global blocking
+
+def acquire_user_slot(username, session_id):
+    """
+    Different users can run concurrently.
+    Same authenticated user cannot run multiple requests at the same time.
+    """
+
+    if username == "unknown":
+        # If EasyAuth/App Service auth header is missing,
+        # we cannot reliably identify same user.
+        # So we do not globally block all unknown users.
+        return True
+
+    with sessions_lock:
+        state = user_active.get(username)
+
+        if state and state["busy"]:
+            return False
+
+        user_active[username] = {
+            "session_id": session_id,
+            "busy": True,
+        }
+
+        return True
+
+
+def release_user_slot(username, session_id):
+    if username == "unknown":
+        return
+
+    with sessions_lock:
+        state = user_active.get(username)
+
+        if state and state["session_id"] == session_id:
+            state["busy"] = False
+
+
+def clear_user_slot(username):
+    if username == "unknown":
+        return
+
+    with sessions_lock:
+        user_active.pop(username, None)
+
+
+def _create_session(session_id):
     client = _make_mcp_client()
     client.__enter__()
+
     tools = client.list_tools_sync()
 
     agent = Agent(
@@ -136,11 +215,45 @@ def get_or_create_session(session_id):
         system_prompt=SYSTEM_PROMPT,
     )
 
-    session = {
+    return {
         "client": client,
         "agent": agent,
         "last_used": time.time(),
     }
+
+
+def get_or_create_session(session_id):
+    cleanup_old_sessions()
+
+    with sessions_lock:
+        if session_id in sessions:
+            sessions[session_id]["last_used"] = time.time()
+            return sessions[session_id]
+
+        if len(sessions) >= MAX_SESSIONS:
+            return None
+
+    future = executor.submit(_create_session, session_id)
+
+    try:
+        session = future.result(timeout=CREATE_TIMEOUT)
+
+    except concurrent.futures.TimeoutError:
+        logger.error(
+            "session_create_timeout",
+            extra={"session_id": session_id},
+        )
+        return None
+
+    except Exception as e:
+        logger.exception(
+            "session_create_error",
+            extra={
+                "session_id": session_id,
+                "error": str(e),
+            },
+        )
+        return None
 
     with sessions_lock:
         sessions[session_id] = session
@@ -149,11 +262,14 @@ def get_or_create_session(session_id):
     return session
 
 
+# -------------------------
+# Gradio chat function
+# -------------------------
 def chat(message, history, request: gr.Request):
     username = request.headers.get("x-ms-client-principal-name", "unknown")
 
-    # Important: after refresh, keep same browser session per user
-    session_id = username if username != "unknown" else request.session_hash
+    # Refresh creates new Gradio session.
+    session_id = request.session_hash
 
     logger.info(
         "chat_request",
@@ -166,26 +282,50 @@ def chat(message, history, request: gr.Request):
 
     if message.strip().lower() in ["reset", "/reset", "リセット"]:
         close_session(session_id)
+        clear_user_slot(username)
         return "ブラウザセッションをリセットしました。"
+
+    # Same user cannot run multiple sessions/requests concurrently.
+    if not acquire_user_slot(username, session_id):
+        return (
+            "前の処理がまだ実行中です。"
+            "完了までお待ちください。"
+            "長時間戻らない場合は、少し待ってからページを再読み込みしてください。"
+        )
 
     try:
         session = get_or_create_session(session_id)
 
         if session is None:
-            return "現在混み合っています。しばらくしてからお試しください。"
+            return (
+                "セッション作成に失敗、または現在混み合っています。"
+                "少し待ってから再読み込みしてください。"
+            )
 
         future = executor.submit(session["agent"], message)
-        response = future.result(timeout=AGENT_TIMEOUT)
 
+        try:
+            response = future.result(timeout=AGENT_TIMEOUT)
+
+        except concurrent.futures.TimeoutError:
+            logger.error(
+                "agent_timeout",
+                extra={
+                    "username": username,
+                    "session_id": session_id,
+                },
+            )
+
+            close_session(session_id)
+
+            return (
+                "処理がタイムアウトしました。"
+                "ブラウザセッションをリセットしました。"
+                "ページを再読み込みして、もう一度お試しください。"
+            )
+
+        session["last_used"] = time.time()
         return str(response)
-
-    except concurrent.futures.TimeoutError:
-        logger.error(
-            "agent_timeout",
-            extra={"username": username, "session_id": session_id}
-        )
-        close_session(session_id)
-        return "処理がタイムアウトしました。ブラウザセッションをリセットしました。もう一度お試しください。"
 
     except Exception as e:
         logger.exception(
@@ -196,10 +336,18 @@ def chat(message, history, request: gr.Request):
                 "error": str(e),
             },
         )
+
         close_session(session_id)
-        return f"エラーが発生しました。ブラウザセッションをリセットしました: {str(e)}"
+
+        return f"エラーが発生しました。セッションをリセットしました: {str(e)}"
+
+    finally:
+        release_user_slot(username, session_id)
 
 
+# -------------------------
+# Gradio UI
+# -------------------------
 with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.Markdown("# ブラウザ操作エージェント")
     gr.Markdown("ブラウザ操作できます！")
@@ -214,6 +362,7 @@ with gr.Blocks(title="Playwright Web Agent") as demo:
             "リセット",
         ],
     )
+
 
 demo.queue(default_concurrency_limit=MAX_SESSIONS)
 

@@ -12,7 +12,6 @@ from mcp import stdio_client, StdioServerParameters
 from azure.identity import ManagedIdentityCredential, get_bearer_token_provider
 from anthropic import AsyncAnthropicFoundry
 
-# make sure to update requirements.txt for strands_agent.  There are openai and anthropic versions.
 logger.remove()
 logger.add(sys.stdout, serialize=True, level="INFO")
 
@@ -57,11 +56,22 @@ SYSTEM_PROMPT = (
 )
 
 # --- Per-session browser instances ---
-import time
-
 sessions = {}
 sessions_lock = threading.Lock()
 SESSION_TIMEOUT = 1800  # 30 minutes
+MAX_SESSIONS = 4
+
+def _make_mcp_client():
+    def _factory():
+        return stdio_client(
+            StdioServerParameters(
+                command=NODE_PATH,
+                args=[MCP_CLI, "--headless", "--no-sandbox", "--browser", "chromium"],
+                env=MCP_ENV,
+                stderr=sys.stderr
+            )
+        )
+    return MCPClient(_factory)
 
 def cleanup_old_sessions():
     now = time.time()
@@ -79,8 +89,10 @@ def cleanup_old_sessions():
 
 def get_or_create_session(session_id):
     with sessions_lock:
-        cleanup_old_sessions()  # ← clean up before creating new ones
+        cleanup_old_sessions()
         if session_id not in sessions:
+            if len(sessions) >= MAX_SESSIONS:
+                return None
             client = _make_mcp_client()
             client.__enter__()
             tools = client.list_tools_sync()
@@ -96,13 +108,16 @@ def get_or_create_session(session_id):
             }
             logger.info("session_created", extra={"session_id": session_id})
         else:
-            sessions[session_id]["last_used"] = time.time()  # ← update on reuse
+            sessions[session_id]["last_used"] = time.time()
         return sessions[session_id]
 
 def chat(message, history, request: gr.Request):
     username = request.headers.get("x-ms-client-principal-name", "unknown")
     session_id = request.session_hash
     session = get_or_create_session(session_id)
+
+    if session is None:
+        return "現在混み合っています。しばらくしてからお試しください。"
 
     print("", flush=True)
     logger.info("chat_request", extra={"username": username, "message": message})
@@ -112,7 +127,6 @@ def chat(message, history, request: gr.Request):
     except Exception as e:
         logger.exception("chat_error", extra={"username": username, "error": str(e)})
         return f"An error occurred: {str(e)}"
-
 
 with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.Markdown("# ブラウザ操作エージェント")

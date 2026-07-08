@@ -26,7 +26,7 @@ def _make_model():
     m = AnthropicModel(
         client_args={"api_key": "placeholder"},
         model_id="claude-haiku-4-5",
-        max_tokens=32768,
+        max_tokens=16384,
     )
     m.client = AsyncAnthropicFoundry(
         base_url="https://foundry-nakatsukasa1.services.ai.azure.com/anthropic",
@@ -54,6 +54,7 @@ SYSTEM_PROMPT = (
     "You can browse websites, extract information, click elements, "
     "fill forms, and take screenshots. "
     "If you encounter an error, report the exact error message."
+    "If the user does not provide URL in the session, use google search, and research the top link, to answer questions."
 )
 
 sessions = {}
@@ -61,7 +62,7 @@ sessions_lock = threading.Lock()
 
 SESSION_TIMEOUT = 1800
 MAX_SESSIONS = 4
-AGENT_TIMEOUT = 180
+AGENT_TIMEOUT = 600
 
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_SESSIONS)
 

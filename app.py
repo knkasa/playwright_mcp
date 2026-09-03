@@ -205,8 +205,14 @@ with gr.Blocks(title="Playwright Web Agent") as demo:
     gr.Markdown("# ブラウザ操作エージェント")
     gr.Markdown("ブラウザ操作できます！")
 
+    chatbot = gr.Chatbot(
+        label="Chatbot",
+        height=650,
+    )
+    
     gr.ChatInterface(
         fn=chat,
+        chatbot=chatbot,
         examples=[
             "https://arxiv.org/ のArtificial Intelligenceにアクセスして、Top5の記事について教えて",
             "anthropic.com/newsにアクセスして、直近5件のニュースタイトルを取得して",

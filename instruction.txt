@@ -1,0 +1,32 @@
+AZURE_ENDPOINT = "https://foundry-xxx"
+DEPLOYMENT_NAME = "gpt-4o-mini"
+
+To use CLI, first run:  az login --identity
+
+Azure Container Registry
+In Azure Container Repo, Settings/Access keys, enable Admin user, copy username & password.
+Go to your github repo, under settings/Actions, add Secrets & Variables.
+create yaml file for workflow under .github/workflows/push-to-acr.yml
+
+Azure container apps:
+create container apps.  enable Ingress access, choose "Accepting traffic from anywhere", with 7860(defined in code)
+after deployed, enable system identity, then copy the principleID.
+Now, adding role, first open Container App, Security/Identity, Enable system assigned.
+go to ACR, IAM, add ArcPull role, Managed identity->select members->your container app name & container environment.
+go to Foundry IAM, add Cognitive Services OpenAI User(cognitive services user for claude), Managed identity->select members->your container app name.
+For restart, stop and start again. If you want to make changes, Application/Container/, make edit.
+For authenticating, Security/Authentication, create new registration, and pick current tenant(force @dls domain).
+
+(finding npm install location, go to your container app/console, use unix command, "npm root -g"
+
+
+For installing Rancher:
+Install wsl first.  "wsl --install --no-distribution" in powershell admin.
+Download from Rancher from rancherdesktop.io
+Install for all users.
+Reboot VM. (user:nakatsukasa1 pass:same as gmail)
+Run Rancher. uncheck kubernetes, check docker.
+"docker build -t image-test . "
+"docker run -p 7860:7860 image-test " 
+open http://localhost:7860
+

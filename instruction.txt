@@ -30,3 +30,9 @@ Run Rancher. uncheck kubernetes, check docker.
 "docker run -p 7860:7860 image-test " 
 open http://localhost:7860
 
+For RAG:
+After creating AI search and importing from blob, 
+Assign roles to blob & foundry with managed identity, AI search you created.
+Assign roles to Foundry with managed identity, AI foundry you created.
+In foundry portal, from knowledge base, make connection to the AI search you created.
+
